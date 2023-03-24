@@ -3,6 +3,8 @@ import time
 from collections import namedtuple
 
 import numpy as np
+from scipy.stats import norm, binom
+import random
 
 from .dist import MasterClient, WorkerClient
 
@@ -318,6 +320,7 @@ def run_worker(relay_redis_cfg, noise, *, min_task_runtime=.2):
     config, env, sess, policy = setup(exp, single_threaded=True)
     rs = np.random.RandomState()
     worker_id = rs.randint(2 ** 31)
+    magnitudes = []
 
     assert policy.needs_ob_stat == (config.calc_obstat_prob != 0)
 
@@ -353,7 +356,8 @@ def run_worker(relay_redis_cfg, noise, *, min_task_runtime=.2):
 
             while not noise_inds or time.time() - task_tstart < min_task_runtime:
                 noise_idx = noise.sample_index(rs, policy.num_params)
-                v = config.noise_stdev * noise.get(noise_idx, policy.num_params)
+                epsilon = noise.get(noise_idx, policy.num_params)
+                v = config.noise_stdev * epsilon
 
                 policy.set_trainable_flat(task_data.params + v)
                 rews_pos, len_pos = rollout_and_update_ob_stat(
@@ -362,12 +366,33 @@ def run_worker(relay_redis_cfg, noise, *, min_task_runtime=.2):
                 policy.set_trainable_flat(task_data.params - v)
                 rews_neg, len_neg = rollout_and_update_ob_stat(
                     policy, env, task_data.timestep_limit, rs, task_ob_stat, config.calc_obstat_prob)
+                
+                if config.comm_type = "probabilistic":
+                    magnitude = (cum_rews_pos-cum_rews_neg)/np.linalg.norm(epsilon)
+                    magnitudes.append(magnitude)
+                    magnitudes = magnitudes[-config.comm_mem:]
+                    if magnitudes:
+                        mean = np.mean(magnitudes)
+                        sig = np.std(magnitudes)
+                    else:
+                        mean = 0
+                        sig = 1
+                    p_norm = norm.cdf((magnitude-mean)/sig)
+                    p_comm = 1-binom.cdf(config.equiv_episodes_per_batch - config.episodes_per_batch - 1, config.equiv_episodes_per_batch, p_norm)
+                    comm = random.random() < p_comm
+                elif config.comm_type = "always":
+                    comm = True
+                else:
+                    raise NotImplementedError(config.comm_type)
 
-                noise_inds.append(noise_idx)
-                returns.append([rews_pos.sum(), rews_neg.sum()])
-                signreturns.append([np.sign(rews_pos).sum(), np.sign(rews_neg).sum()])
-                lengths.append([len_pos, len_neg])
-
+                 
+                if comm:               
+                    noise_inds.append(noise_idx)
+                    cum_rews_pos, cum_rews_neg = rews_pos.sum(), rews_neg.sum()
+                    returns.append([cum_rews_pos, cum_rews_neg])
+                    signreturns.append([np.sign(rews_pos).sum(), np.sign(rews_neg).sum()])
+                    lengths.append([len_pos, len_neg])
+                
             worker.push_result(task_id, Result(
                 worker_id=worker_id,
                 noise_inds_n=np.array(noise_inds),
