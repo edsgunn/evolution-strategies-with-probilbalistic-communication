@@ -74,6 +74,10 @@ sudo mkdir -p /opt/mujoco
 # The key file should be in /opt/mujoco/mjkey.txt     #
 # Mujoco should be installed in /opt/mujoco/mjpro131  #
 #######################################################
+sudo apt-get install unzip
+sudo wget --quiet https://www.roboti.us/download/mjpro131_linux.zip -O /opt/mujoco/mjpro131.zip
+unzip /opt/mujoco/mjpro131.zip
+sudo wget --quiet https://www.roboti.us/file/mjkey.txt -O /opt/mujoco/mjkey.txt
 
 sudo echo 'export MUJOCO_PY_MJKEY_PATH=/opt/mujoco/mjkey.txt' | sudo tee /etc/profile.d/mujoco.sh > /dev/null
 sudo echo 'export MUJOCO_PY_MJPRO_PATH=/opt/mujoco/mjpro131' | sudo tee -a /etc/profile.d/mujoco.sh > /dev/null
